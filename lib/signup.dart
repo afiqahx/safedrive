@@ -43,7 +43,7 @@ class _SignupPageState extends State<SignupPage> {
     super.dispose();
   }
 
-  // FIREBASE SIGN UP
+  //SIGN UP
   Future<void> signup() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -67,14 +67,12 @@ class _SignupPageState extends State<SignupPage> {
 
       debugPrint('STEP 1 SUCCESS: Authentication account created.');
 
-// Generate sequential IDs
       final counterRef =
           FirebaseFirestore.instance.collection('id_counters').doc('main');
 
       final userRef =
           FirebaseFirestore.instance.collection('user').doc(authUID);
 
-// Save user and vehicle using transaction
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final counterSnapshot = await transaction.get(counterRef);
         final counterData = counterSnapshot.data() ?? {};
@@ -93,13 +91,11 @@ class _SignupPageState extends State<SignupPage> {
         final vehicleRef =
             FirebaseFirestore.instance.collection('vehicle').doc(vehicleID);
 
-        // Update counter
         transaction.set(counterRef, {
           'user': newUserNumber,
           'vehicle': newVehicleNumber,
         });
 
-        // Save user
         transaction.set(userRef, {
           'userID': userID,
           'authUID': authUID,
@@ -110,7 +106,6 @@ class _SignupPageState extends State<SignupPage> {
           'createdAt': FieldValue.serverTimestamp(),
         });
 
-        // Save vehicle
         transaction.set(vehicleRef, {
           'vehicleID': vehicleID,
           'userID': userID,
