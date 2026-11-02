@@ -3,7 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'firebase_options.dart';
-//import 'signup.dart';
+import 'signup.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,7 +25,6 @@ class AppColors {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -43,7 +42,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-//LOGIN PAGE
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -125,7 +123,6 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  //FORGOT PASSWORD
   Future<void> resetPassword() async {
     final email = emailController.text.trim();
 
@@ -178,7 +175,7 @@ class _LoginPageState extends State<LoginPage> {
                           borderRadius: BorderRadius.circular(25),
                         ),
                         child: const Icon(
-                          Icons.remove_red_eye_rounded,
+                          Icons.time_to_leave_rounded,
                           size: 48,
                           color: Colors.white,
                         ),
@@ -229,7 +226,6 @@ class _LoginPageState extends State<LoginPage> {
 
                 const SizedBox(height: 30),
 
-                // EMAIL
                 const Text(
                   'Email Address',
                   style: TextStyle(
@@ -295,7 +291,6 @@ class _LoginPageState extends State<LoginPage> {
 
                 const SizedBox(height: 10),
 
-                // FORGOT PASSWORD
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
@@ -312,7 +307,6 @@ class _LoginPageState extends State<LoginPage> {
 
                 const SizedBox(height: 15),
 
-                // LOGIN BUTTON
                 SizedBox(
                   width: double.infinity,
                   height: 55,
@@ -342,7 +336,6 @@ class _LoginPageState extends State<LoginPage> {
 
                 const SizedBox(height: 25),
 
-                // SIGN UP NAVIGATION
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -350,12 +343,12 @@ class _LoginPageState extends State<LoginPage> {
                       "Don't have an account? ",
                       style: TextStyle(color: AppColors.grey),
                     ),
-                    /**GestureDetector(
+                    GestureDetector(
                       onTap: () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const SignUpPage(),
+                            builder: (context) => const SignupPage(),
                           ),
                         );
                       },
@@ -366,7 +359,7 @@ class _LoginPageState extends State<LoginPage> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                    ),**/
+                    ),
                   ],
                 ),
 
@@ -391,7 +384,6 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
-// DASHBOARD
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 

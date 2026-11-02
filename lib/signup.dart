@@ -1,23 +1,37 @@
-/**import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 
-class SignUpPage extends StatefulWidget {
-  const SignUpPage({super.key});
+class SignupPage extends StatefulWidget {
+  const SignupPage({super.key});
 
   @override
-  State<SignUpPage> createState() => _SignUpPageState();
+  State<SignupPage> createState() => _SignupPageState();
 }
 
-class _SignUpPageState {
+class _SignupPageState extends State<SignupPage> {
   final nameController = TextEditingController();
   final emailController = TextEditingController();
   final phoneController = TextEditingController();
   final passwordController = TextEditingController();
-  final confirmPasswordController = TextEditingController();
+  final plateController = TextEditingController();
+
+  final _formKey = GlobalKey<FormState>();
+
+  String? selectedVehicleType;
 
   bool hidePassword = true;
-  bool hideConfirmPassword = true;
   bool isLoading = false;
+
+  final List<String> vehicleTypes = [
+    'Car',
+    'Motorcycle',
+    'Van',
+    'Lorry',
+    'Bus',
+    'Other',
+  ];
 
   @override
   void dispose() {
@@ -25,8 +39,118 @@ class _SignUpPageState {
     emailController.dispose();
     phoneController.dispose();
     passwordController.dispose();
-    confirmPasswordController.dispose();
+    plateController.dispose();
     super.dispose();
+  }
+
+  // FIREBASE SIGN UP
+  Future<void> signup() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    if (selectedVehicleType == null) {
+      showMessage('Please select your vehicle type.');
+      return;
+    }
+
+    setState(() => isLoading = true);
+
+    String currentStep = 'Creating Authentication account';
+
+    try {
+      final credential =
+          await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: emailController.text.trim(),
+        password: passwordController.text,
+      );
+
+      final authUID = credential.user!.uid;
+
+      debugPrint('STEP 1 SUCCESS: Authentication account created.');
+
+// Generate sequential IDs
+      final counterRef =
+          FirebaseFirestore.instance.collection('id_counters').doc('main');
+
+      final userRef =
+          FirebaseFirestore.instance.collection('user').doc(authUID);
+
+// Save user and vehicle using transaction
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final counterSnapshot = await transaction.get(counterRef);
+        final counterData = counterSnapshot.data() ?? {};
+
+        final nextUserNumber = (counterData['user'] as num?)?.toInt() ?? 0;
+
+        final nextVehicleNumber =
+            (counterData['vehicle'] as num?)?.toInt() ?? 0;
+
+        final newUserNumber = nextUserNumber + 1;
+        final newVehicleNumber = nextVehicleNumber + 1;
+
+        final userID = 'U${newUserNumber.toString().padLeft(3, '0')}';
+        final vehicleID = 'V${newVehicleNumber.toString().padLeft(3, '0')}';
+
+        final vehicleRef =
+            FirebaseFirestore.instance.collection('vehicle').doc(vehicleID);
+
+        // Update counter
+        transaction.set(counterRef, {
+          'user': newUserNumber,
+          'vehicle': newVehicleNumber,
+        });
+
+        // Save user
+        transaction.set(userRef, {
+          'userID': userID,
+          'authUID': authUID,
+          'username': nameController.text.trim(),
+          'email': emailController.text.trim(),
+          'phone': phoneController.text.trim(),
+          'role': 'user',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        // Save vehicle
+        transaction.set(vehicleRef, {
+          'vehicleID': vehicleID,
+          'userID': userID,
+          'authUID': authUID,
+          'vehicle_type': selectedVehicleType,
+          'vehicle_status': 'Active',
+          'plate_number': plateController.text.trim().toUpperCase(),
+          'last_sync': null,
+        });
+
+        debugPrint('Generated User ID: $userID');
+        debugPrint('Generated Vehicle ID: $vehicleID');
+      });
+
+      if (!mounted) return;
+
+      showMessage('Account registered successfully!');
+      Navigator.pop(context);
+    } on FirebaseAuthException catch (e) {
+      debugPrint('AUTHENTICATION ERROR: ${e.code}');
+      debugPrint('MESSAGE: ${e.message}');
+
+      showMessage('Authentication Error: ${e.code}');
+    } on FirebaseException catch (e) {
+      debugPrint('FIREBASE ERROR AT: $currentStep');
+      debugPrint('ERROR CODE: ${e.code}');
+      debugPrint('ERROR MESSAGE: ${e.message}');
+
+      showMessage('Error at $currentStep: ${e.code}');
+    } catch (e, stackTrace) {
+      debugPrint('GENERAL ERROR AT: $currentStep');
+      debugPrint('ERROR: $e');
+      debugPrint('STACK TRACE: $stackTrace');
+
+      showMessage('Something went wrong: $e');
+    } finally {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
   }
 
   void showMessage(String message) {
@@ -37,329 +161,355 @@ class _SignUpPageState {
     );
   }
 
-  // FIREBASE SIGN UP
-  Future<void> signUp() async {
-    final name = nameController.text.trim();
-    final email = emailController.text.trim();
-    final phone = phoneController.text.trim();
-    final password = passwordController.text;
-    final confirmPassword = confirmPasswordController.text;
-
-    // CHECK EMPTY FIELDS
-    if (name.isEmpty ||
-        email.isEmpty ||
-        phone.isEmpty ||
-        password.isEmpty ||
-        confirmPassword.isEmpty) {
-      showMessage('Please fill in all fields.');
-      return;
-    }
-
-    // CHECK EMAIL FORMAT
-    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(email)) {
-      showMessage('Please enter a valid email address.');
-      return;
-    }
-
-    // CHECK PASSWORD LENGTH
-    if (password.length < 6) {
-      showMessage('Password must contain at least 6 characters.');
-      return;
-    }
-
-    // CHECK PASSWORD MATCH
-    if (password != confirmPassword) {
-      showMessage('Passwords do not match.');
-      return;
-    }
-
-    setState(() => isLoading = true);
-
-    try {
-      // CREATE FIREBASE ACCOUNT
-      final userCredential =
-          await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-
-      // SAVE DISPLAY NAME IN FIREBASE AUTH PROFILE
-      await userCredential.user?.updateDisplayName(name);
-
-      if (!mounted) return;
-
-      // RETURN TO LOGIN PAGE
-      showMessage('Account created successfully! Please log in.');
-
-      Navigator.pop(context);
-    } on FirebaseAuthException catch (e) {
-      String message;
-
-      switch (e.code) {
-        case 'email-already-in-use':
-          message = 'This email is already registered.';
-          break;
-        case 'invalid-email':
-          message = 'Invalid email address.';
-          break;
-        case 'weak-password':
-          message = 'Please use a stronger password.';
-          break;
-        case 'operation-not-allowed':
-          message = 'Email/Password authentication is not enabled.';
-          break;
-        default:
-          message = e.message ?? 'Registration failed.';
-      }
-
-      showMessage(message);
-    } catch (e) {
-      showMessage('Something went wrong. Please try again.');
-    } finally {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
-    }
-  }
-
-  // REUSABLE INPUT FIELD
-  Widget buildInput({
-    required String label,
+  InputDecoration inputDecoration({
     required String hint,
     required IconData icon,
-    required TextEditingController controller,
-    TextInputType keyboardType = TextInputType.text,
-    bool obscureText = false,
-    Widget? suffixIcon,
+    Widget? suffix,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF142B4A),
-          ),
-        ),
-        const SizedBox(height: 9),
-        TextField(
-          controller: controller,
-          keyboardType: keyboardType,
-          obscureText: obscureText,
-          decoration: InputDecoration(
-            hintText: hint,
-            prefixIcon: Icon(icon),
-            suffixIcon: suffixIcon,
-            filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        ),
-      ],
+    return InputDecoration(
+      hintText: hint,
+      prefixIcon: Icon(icon),
+      suffixIcon: suffix,
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    const navy = Color(0xFF142B4A);
+    const blue = Color(0xFF2878D0);
+    const grey = Color(0xFF7A8795);
+
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFFF7F9FC),
+        backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios_new,
-            color: Color(0xFF142B4A),
+        foregroundColor: navy,
+        title: const Text(
+          'Create Account',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
           ),
-          onPressed: () => Navigator.pop(context),
         ),
       ),
-
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(
             horizontal: 28,
-            vertical: 10,
+            vertical: 20,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-
-              // HEADER
-              const Center(
-                child: Icon(
-                  Icons.remove_red_eye_rounded,
-                  color: Color(0xFF2878D0),
-                  size: 55,
-                ),
-              ),
-
-              const SizedBox(height: 15),
-
-              const Center(
-                child: Text(
-                  'Create Account',
-                  style: TextStyle(
-                    fontSize: 27,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF142B4A),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              const Center(
-                child: Text(
-                  'Join Blink and make every journey safer.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF7A8795),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 30),
-
-              // FULL NAME
-              buildInput(
-                label: 'Full Name',
-                hint: 'Enter your full name',
-                icon: Icons.person_outline,
-                controller: nameController,
-              ),
-
-              const SizedBox(height: 18),
-
-              // EMAIL
-              buildInput(
-                label: 'Email Address',
-                hint: 'Enter your email',
-                icon: Icons.email_outlined,
-                controller: emailController,
-                keyboardType: TextInputType.emailAddress,
-              ),
-
-              const SizedBox(height: 18),
-
-              // PHONE
-              buildInput(
-                label: 'Phone Number',
-                hint: 'Enter your phone number',
-                icon: Icons.phone_outlined,
-                controller: phoneController,
-                keyboardType: TextInputType.phone,
-              ),
-
-              const SizedBox(height: 18),
-
-              // PASSWORD
-              buildInput(
-                label: 'Password',
-                hint: 'Create a password',
-                icon: Icons.lock_outline,
-                controller: passwordController,
-                obscureText: hidePassword,
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    hidePassword
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      hidePassword = !hidePassword;
-                    });
-                  },
-                ),
-              ),
-
-              const SizedBox(height: 18),
-
-              // CONFIRM PASSWORD
-              buildInput(
-                label: 'Confirm Password',
-                hint: 'Re-enter your password',
-                icon: Icons.lock_outline,
-                controller: confirmPasswordController,
-                obscureText: hideConfirmPassword,
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    hideConfirmPassword
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      hideConfirmPassword = !hideConfirmPassword;
-                    });
-                  },
-                ),
-              ),
-
-              const SizedBox(height: 30),
-
-              // CREATE ACCOUNT BUTTON
-              SizedBox(
-                width: double.infinity,
-                height: 55,
-                child: ElevatedButton(
-                  onPressed: isLoading ? null : signUp,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF142B4A),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: isLoading
-                      ? const CircularProgressIndicator(
-                          color: Colors.white,
-                        )
-                      : const Text(
-                          'CREATE ACCOUNT',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1,
-                          ),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // HEADER
+                const Center(
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.directions_car_rounded,
+                        size: 55,
+                        color: navy,
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'Join BLINK',
+                        style: TextStyle(
+                          fontSize: 27,
+                          fontWeight: FontWeight.bold,
+                          color: navy,
                         ),
+                      ),
+                      SizedBox(height: 5),
+                      Text(
+                        'Create your account to get started.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: grey,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
 
-              const SizedBox(height: 25),
+                const SizedBox(height: 35),
 
-              // LOGIN NAVIGATION
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text(
-                    'Already have an account? ',
-                    style: TextStyle(
-                      color: Color(0xFF7A8795),
+                const Text(
+                  'Personal Information',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: navy,
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                const Text(
+                  'Full Name',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: navy,
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                TextFormField(
+                  controller: nameController,
+                  decoration: inputDecoration(
+                    hint: 'Enter your full name',
+                    icon: Icons.person_outline,
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter your name.';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 18),
+
+                const Text(
+                  'Email Address',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: navy,
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                TextFormField(
+                  controller: emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: inputDecoration(
+                    hint: 'Enter your email',
+                    icon: Icons.email_outlined,
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter your email.';
+                    }
+                    if (!RegExp(
+                      r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                    ).hasMatch(value.trim())) {
+                      return 'Please enter a valid email.';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 18),
+
+                const Text(
+                  'Phone Number',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: navy,
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                TextFormField(
+                  controller: phoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: inputDecoration(
+                    hint: 'Enter your phone number',
+                    icon: Icons.phone_outlined,
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter your phone number.';
+                    }
+                    if (!RegExp(r'^[0-9+\-\s]{8,15}$').hasMatch(value.trim())) {
+                      return 'Please enter a valid phone number.';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 18),
+
+                const Text(
+                  'Password',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: navy,
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                TextFormField(
+                  controller: passwordController,
+                  obscureText: hidePassword,
+                  decoration: inputDecoration(
+                    hint: 'Create your password',
+                    icon: Icons.lock_outline,
+                    suffix: IconButton(
+                      icon: Icon(
+                        hidePassword
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          hidePassword = !hidePassword;
+                        });
+                      },
                     ),
                   ),
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: const Text(
-                      'Log In',
-                      style: TextStyle(
-                        color: Color(0xFF2878D0),
-                        fontWeight: FontWeight.bold,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your password.';
+                    }
+                    if (value.length < 6) {
+                      return 'Password must be at least 6 characters.';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 30),
+
+                const Text(
+                  'Vehicle Information',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: navy,
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                const Text(
+                  'Vehicle Type',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: navy,
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                DropdownButtonFormField<String>(
+                  value: selectedVehicleType,
+                  decoration: inputDecoration(
+                    hint: 'Select vehicle type',
+                    icon: Icons.directions_car_outlined,
+                  ),
+                  items: vehicleTypes.map((type) {
+                    return DropdownMenuItem(
+                      value: type,
+                      child: Text(type),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      selectedVehicleType = value;
+                    });
+                  },
+                  validator: (value) {
+                    if (value == null) {
+                      return 'Please select your vehicle type.';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 18),
+
+                const Text(
+                  'Vehicle Plate Number',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: navy,
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                TextFormField(
+                  controller: plateController,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: inputDecoration(
+                    hint: 'e.g. ABC1234',
+                    icon: Icons.pin_outlined,
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter your vehicle plate number.';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 35),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 55,
+                  child: ElevatedButton(
+                    onPressed: isLoading ? null : signup,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: navy,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
+                    child: isLoading
+                        ? const CircularProgressIndicator(
+                            color: Colors.white,
+                          )
+                        : const Text(
+                            'CREATE ACCOUNT',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1,
+                            ),
+                          ),
                   ),
-                ],
-              ),
+                ),
 
-              const SizedBox(height: 25),
-            ],
+                const SizedBox(height: 25),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'Already have an account? ',
+                      style: TextStyle(color: grey),
+                    ),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: const Text(
+                        'Log In',
+                        style: TextStyle(
+                          color: blue,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
-}**/
+}
