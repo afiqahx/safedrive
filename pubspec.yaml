@@ -39,6 +39,8 @@ dependencies:
   firebase_auth: ^6.4.0
   font_awesome_flutter: ^10.9.0
   cloud_firestore: ^6.3.0
+  pdf: 3.13.1
+  printing: 5.15.1
 
 dev_dependencies:
   flutter_test:

@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import 'firebase_options.dart';
 import 'signup.dart';
+import 'report_profile_pages.dart' show ReportPage;
+import 'profile_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -384,46 +386,101 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
-class DashboardPage extends StatelessWidget {
+// MAIN APP NAVIGATION
+class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
-
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
+  State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  int selectedIndex = 0;
+  final pages = const <Widget>[
+    _HomeTab(),
+    _HistoryTab(),
+    ReportPage(),
+    ProfilePage()
+  ];
+  @override
+  Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(
-        title: const Text('Blink Dashboard'),
-        backgroundColor: AppColors.navy,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
+          backgroundColor: Colors.white,
+          titleSpacing: 18,
+          title: const Row(children: [
+            CircleAvatar(
+                radius: 17,
+                backgroundColor: AppColors.blue,
+                child:
+                    Icon(Icons.remove_red_eye, size: 19, color: Colors.white)),
+            SizedBox(width: 9),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('BLINK',
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.navy)),
+              Text('Your Drive Monitor',
+                  style: TextStyle(fontSize: 10, color: AppColors.grey)),
+            ]),
+          ]),
+          actions: const [
+            Padding(
+                padding: EdgeInsets.only(right: 16),
+                child: Center(child: _StatusBadge()))
+          ]),
+      body: IndexedStack(index: selectedIndex, children: pages),
+      bottomNavigationBar: NavigationBar(
+          selectedIndex: selectedIndex,
+          onDestinationSelected: (index) =>
+              setState(() => selectedIndex = index),
+          destinations: const [
+            NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home),
+                label: 'Home'),
+            NavigationDestination(icon: Icon(Icons.history), label: 'History'),
+            NavigationDestination(
+                icon: Icon(Icons.bar_chart_outlined),
+                selectedIcon: Icon(Icons.bar_chart),
+                label: 'Report'),
+            NavigationDestination(
+                icon: Icon(Icons.person_outline),
+                selectedIcon: Icon(Icons.person),
+                label: 'Profile'),
+          ]));
+}
 
-              if (!context.mounted) return;
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge();
+  @override
+  Widget build(BuildContext context) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+          color: const Color(0xFFE8FBF3),
+          borderRadius: BorderRadius.circular(18)),
+      child: const Text('●  RPi: Can Active',
+          style: TextStyle(fontSize: 10, color: Color(0xFF178A68))));
+}
 
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const LoginPage(),
-                ),
-                (route) => false,
-              );
-            },
-          ),
-        ],
-      ),
-      body: Center(
-        child: Text(
-          'Welcome to Blink, ${FirebaseAuth.instance.currentUser?.email ?? ''}!',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: AppColors.navy,
-          ),
-        ),
-      ),
-    );
-  }
+class _HomeTab extends StatelessWidget {
+  const _HomeTab();
+  @override
+  Widget build(BuildContext context) => Center(
+      child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+              'Welcome to Blink, ${FirebaseAuth.instance.currentUser?.email ?? ''}!',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.navy))));
+}
+
+class _HistoryTab extends StatelessWidget {
+  const _HistoryTab();
+  @override
+  Widget build(BuildContext context) => const Center(
+      child: Text('Trip history will appear here.',
+          style: TextStyle(color: AppColors.grey)));
 }
