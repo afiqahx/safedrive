@@ -1,22 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
-import 'firebase_options.dart';
+import 'services/api_service.dart';
 import 'signup.dart';
+import 'home.dart' show HomePage;
+import 'history.dart' show HistoryPage;
 import 'report_profile_pages.dart' show ReportPage;
 import 'profile_page.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-
   runApp(const MyApp());
 }
 
+// APP COLORS
 class AppColors {
   static const navy = Color(0xFF142B4A);
   static const blue = Color(0xFF2878D0);
@@ -24,6 +20,7 @@ class AppColors {
   static const grey = Color(0xFF7A8795);
 }
 
+// MAIN APP
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -44,6 +41,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
+// LOGIN PAGE
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -65,7 +63,7 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  // FIREBASE LOGIN
+  // LOGIN WITH MYSQL
   Future<void> login() async {
     final email = emailController.text.trim();
     final password = passwordController.text;
@@ -78,44 +76,31 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => isLoading = true);
 
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      final result = await ApiService.login(
         email: email,
         password: password,
       );
 
       if (!mounted) return;
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const DashboardPage(),
-        ),
-      );
-    } on FirebaseAuthException catch (e) {
-      String message;
+      if (result['success'] == true) {
+        final user = result['user'];
 
-      switch (e.code) {
-        case 'user-not-found':
-          message = 'No account found with this email.';
-          break;
-        case 'wrong-password':
-        case 'invalid-credential':
-          message = 'Incorrect email or password.';
-          break;
-        case 'invalid-email':
-          message = 'Please enter a valid email address.';
-          break;
-        case 'user-disabled':
-          message = 'This account has been disabled.';
-          break;
-        case 'too-many-requests':
-          message = 'Too many attempts. Please try again later.';
-          break;
-        default:
-          message = e.message ?? 'Login failed. Please try again.';
+        showMessage(
+          'Welcome, ${user['username'] ?? 'Driver'}!',
+        );
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const DashboardPage(),
+          ),
+        );
+      } else {
+        showMessage(
+          result['message'] ?? 'Incorrect email or password.',
+        );
       }
-
-      showMessage(message);
     } catch (e) {
       showMessage('Something went wrong. Please try again.');
     } finally {
@@ -125,25 +110,7 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<void> resetPassword() async {
-    final email = emailController.text.trim();
-
-    if (email.isEmpty) {
-      showMessage('Please enter your email address first.');
-      return;
-    }
-
-    try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(
-        email: email,
-      );
-
-      showMessage('Password reset email has been sent.');
-    } on FirebaseAuthException catch (e) {
-      showMessage(e.message ?? 'Unable to send reset email.');
-    }
-  }
-
+  // MESSAGE
   void showMessage(String message) {
     if (!mounted) return;
 
@@ -165,7 +132,7 @@ class _LoginPageState extends State<LoginPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // LOGO
+                // LOGO AND APP NAME
                 Center(
                   child: Column(
                     children: [
@@ -208,7 +175,7 @@ class _LoginPageState extends State<LoginPage> {
                 const SizedBox(height: 45),
 
                 const Text(
-                  'Welcome Back!',
+                  'Welcome !',
                   style: TextStyle(
                     fontSize: 27,
                     fontWeight: FontWeight.bold,
@@ -228,6 +195,7 @@ class _LoginPageState extends State<LoginPage> {
 
                 const SizedBox(height: 30),
 
+                // EMAIL
                 const Text(
                   'Email Address',
                   style: TextStyle(
@@ -296,7 +264,11 @@ class _LoginPageState extends State<LoginPage> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
-                    onPressed: resetPassword,
+                    onPressed: () {
+                      showMessage(
+                        'Password reset is not available yet.',
+                      );
+                    },
                     child: const Text(
                       'Forgot Password?',
                       style: TextStyle(
@@ -309,6 +281,7 @@ class _LoginPageState extends State<LoginPage> {
 
                 const SizedBox(height: 15),
 
+                // LOGIN BUTTON
                 SizedBox(
                   width: double.infinity,
                   height: 55,
@@ -338,12 +311,15 @@ class _LoginPageState extends State<LoginPage> {
 
                 const SizedBox(height: 25),
 
+                // SIGN UP
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Text(
                       "Don't have an account? ",
-                      style: TextStyle(color: AppColors.grey),
+                      style: TextStyle(
+                        color: AppColors.grey,
+                      ),
                     ),
                     GestureDetector(
                       onTap: () {
@@ -386,101 +362,148 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
-// MAIN APP NAVIGATION
+// DASHBOARD NAVIGATION
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
+
   @override
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
 class _DashboardPageState extends State<DashboardPage> {
   int selectedIndex = 0;
-  final pages = const <Widget>[
-    _HomeTab(),
-    _HistoryTab(),
+
+  final List<Widget> pages = const [
+    HomePage(),
+    HistoryPage(userID: 1), // Replace 1 with the actual user ID
     ReportPage(),
-    ProfilePage()
+    ProfilePage(),
   ];
+
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    return Scaffold(
       appBar: AppBar(
-          backgroundColor: Colors.white,
-          titleSpacing: 18,
-          title: const Row(children: [
+        backgroundColor: Colors.white,
+        elevation: 0,
+        titleSpacing: 18,
+        title: const Row(
+          children: [
             CircleAvatar(
-                radius: 17,
-                backgroundColor: AppColors.blue,
-                child:
-                    Icon(Icons.remove_red_eye, size: 19, color: Colors.white)),
+              radius: 17,
+              backgroundColor: AppColors.blue,
+              child: Icon(
+                Icons.directions_car,
+                size: 19,
+                color: Colors.white,
+              ),
+            ),
             SizedBox(width: 9),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('BLINK',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'BLINK',
                   style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.navy)),
-              Text('Your Drive Monitor',
-                  style: TextStyle(fontSize: 10, color: AppColors.grey)),
-            ]),
-          ]),
-          actions: const [
-            Padding(
-                padding: EdgeInsets.only(right: 16),
-                child: Center(child: _StatusBadge()))
-          ]),
-      body: IndexedStack(index: selectedIndex, children: pages),
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.navy,
+                  ),
+                ),
+                Text(
+                  'Your Drive Monitor',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: AppColors.grey,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: const [
+          Padding(
+            padding: EdgeInsets.only(right: 16),
+            child: Center(
+              child: _StatusBadge(),
+            ),
+          ),
+        ],
+      ),
+
+      body: IndexedStack(
+        index: selectedIndex,
+        children: pages,
+      ),
+
+      // BOTTOM NAVIGATION
       bottomNavigationBar: NavigationBar(
-          selectedIndex: selectedIndex,
-          onDestinationSelected: (index) =>
-              setState(() => selectedIndex = index),
-          destinations: const [
-            NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home),
-                label: 'Home'),
-            NavigationDestination(icon: Icon(Icons.history), label: 'History'),
-            NavigationDestination(
-                icon: Icon(Icons.bar_chart_outlined),
-                selectedIcon: Icon(Icons.bar_chart),
-                label: 'Report'),
-            NavigationDestination(
-                icon: Icon(Icons.person_outline),
-                selectedIcon: Icon(Icons.person),
-                label: 'Profile'),
-          ]));
+        backgroundColor: Colors.white,
+        selectedIndex: selectedIndex,
+        onDestinationSelected: (index) {
+          setState(() {
+            selectedIndex = index;
+          });
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.history),
+            selectedIcon: Icon(Icons.history),
+            label: 'History',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart),
+            label: 'Report',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
+    );
+  }
 }
 
+// RASPBERRY PI STATUS
 class _StatusBadge extends StatelessWidget {
   const _StatusBadge();
+
   @override
-  Widget build(BuildContext context) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 6,
+      ),
       decoration: BoxDecoration(
-          color: const Color(0xFFE8FBF3),
-          borderRadius: BorderRadius.circular(18)),
-      child: const Text('●  RPi: Can Active',
-          style: TextStyle(fontSize: 10, color: Color(0xFF178A68))));
-}
-
-class _HomeTab extends StatelessWidget {
-  const _HomeTab();
-  @override
-  Widget build(BuildContext context) => Center(
-      child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-              'Welcome to Blink, ${FirebaseAuth.instance.currentUser?.email ?? ''}!',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.navy))));
-}
-
-class _HistoryTab extends StatelessWidget {
-  const _HistoryTab();
-  @override
-  Widget build(BuildContext context) => const Center(
-      child: Text('Trip history will appear here.',
-          style: TextStyle(color: AppColors.grey)));
+        color: const Color(0xFFE8FBF3),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Row(
+        children: [
+          Icon(
+            Icons.bolt,
+            size: 13,
+            color: Color.fromARGB(255, 138, 23, 23),
+          ),
+          SizedBox(width: 4),
+          Text(
+            'RPi Cam Not Active',
+            style: TextStyle(
+              fontSize: 10,
+              color: Color.fromARGB(255, 138, 23, 23),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

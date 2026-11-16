@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'services/api_service.dart';
 
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
@@ -26,11 +24,9 @@ class _SignupPageState extends State<SignupPage> {
 
   final List<String> vehicleTypes = [
     'Car',
-    'Motorcycle',
     'Van',
     'Lorry',
     'Bus',
-    'Other',
   ];
 
   @override
@@ -43,7 +39,7 @@ class _SignupPageState extends State<SignupPage> {
     super.dispose();
   }
 
-  //SIGN UP
+  // SIGN UP WITH MYSQL THROUGH REST API
   Future<void> signup() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -54,93 +50,37 @@ class _SignupPageState extends State<SignupPage> {
 
     setState(() => isLoading = true);
 
-    String currentStep = 'Creating Authentication account';
-
     try {
-      final credential =
-          await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      final result = await ApiService.register(
+        username: nameController.text.trim(),
         email: emailController.text.trim(),
+        phone: phoneController.text.trim(),
         password: passwordController.text,
+        vehicleType: selectedVehicleType!,
+        plateNumber: plateController.text.trim().toUpperCase(),
       );
-
-      final authUID = credential.user!.uid;
-
-      debugPrint('STEP 1 SUCCESS: Authentication account created.');
-
-      final counterRef =
-          FirebaseFirestore.instance.collection('id_counters').doc('main');
-
-      final userRef =
-          FirebaseFirestore.instance.collection('user').doc(authUID);
-
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final counterSnapshot = await transaction.get(counterRef);
-        final counterData = counterSnapshot.data() ?? {};
-
-        final nextUserNumber = (counterData['user'] as num?)?.toInt() ?? 0;
-
-        final nextVehicleNumber =
-            (counterData['vehicle'] as num?)?.toInt() ?? 0;
-
-        final newUserNumber = nextUserNumber + 1;
-        final newVehicleNumber = nextVehicleNumber + 1;
-
-        final userID = 'U${newUserNumber.toString().padLeft(3, '0')}';
-        final vehicleID = 'V${newVehicleNumber.toString().padLeft(3, '0')}';
-
-        final vehicleRef =
-            FirebaseFirestore.instance.collection('vehicle').doc(vehicleID);
-
-        transaction.set(counterRef, {
-          'user': newUserNumber,
-          'vehicle': newVehicleNumber,
-        });
-
-        transaction.set(userRef, {
-          'userID': userID,
-          'authUID': authUID,
-          'username': nameController.text.trim(),
-          'email': emailController.text.trim(),
-          'phone': phoneController.text.trim(),
-          'role': 'user',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-
-        transaction.set(vehicleRef, {
-          'vehicleID': vehicleID,
-          'userID': userID,
-          'authUID': authUID,
-          'vehicle_type': selectedVehicleType,
-          'vehicle_status': 'Active',
-          'plate_number': plateController.text.trim().toUpperCase(),
-          'last_sync': null,
-        });
-
-        debugPrint('Generated User ID: $userID');
-        debugPrint('Generated Vehicle ID: $vehicleID');
-      });
 
       if (!mounted) return;
 
-      showMessage('Account registered successfully!');
-      Navigator.pop(context);
-    } on FirebaseAuthException catch (e) {
-      debugPrint('AUTHENTICATION ERROR: ${e.code}');
-      debugPrint('MESSAGE: ${e.message}');
+      if (result['success'] == true) {
+        showMessage(
+          result['message'] ?? 'Account registered successfully!',
+        );
 
-      showMessage('Authentication Error: ${e.code}');
-    } on FirebaseException catch (e) {
-      debugPrint('FIREBASE ERROR AT: $currentStep');
-      debugPrint('ERROR CODE: ${e.code}');
-      debugPrint('ERROR MESSAGE: ${e.message}');
+        Navigator.pop(context);
+      } else {
+        showMessage(
+          result['message'] ?? 'Registration failed. Please try again.',
+        );
+      }
+    } catch (e) {
+      debugPrint('SIGNUP ERROR: $e');
 
-      showMessage('Error at $currentStep: ${e.code}');
-    } catch (e, stackTrace) {
-      debugPrint('GENERAL ERROR AT: $currentStep');
-      debugPrint('ERROR: $e');
-      debugPrint('STACK TRACE: $stackTrace');
+      if (!mounted) return;
 
-      showMessage('Something went wrong: $e');
+      showMessage(
+        'Unable to connect to server. Please try again.',
+      );
     } finally {
       if (mounted) {
         setState(() => isLoading = false);
@@ -148,6 +88,7 @@ class _SignupPageState extends State<SignupPage> {
     }
   }
 
+  // SHOW MESSAGE
   void showMessage(String message) {
     if (!mounted) return;
 
@@ -156,6 +97,7 @@ class _SignupPageState extends State<SignupPage> {
     );
   }
 
+  // INPUT DECORATION
   InputDecoration inputDecoration({
     required String hint,
     required IconData icon,
@@ -234,6 +176,7 @@ class _SignupPageState extends State<SignupPage> {
 
                 const SizedBox(height: 35),
 
+                // PERSONAL INFORMATION
                 const Text(
                   'Personal Information',
                   style: TextStyle(
@@ -245,6 +188,7 @@ class _SignupPageState extends State<SignupPage> {
 
                 const SizedBox(height: 20),
 
+                // FULL NAME
                 const Text(
                   'Full Name',
                   style: TextStyle(
@@ -271,6 +215,7 @@ class _SignupPageState extends State<SignupPage> {
 
                 const SizedBox(height: 18),
 
+                // EMAIL
                 const Text(
                   'Email Address',
                   style: TextStyle(
@@ -292,17 +237,22 @@ class _SignupPageState extends State<SignupPage> {
                     if (value == null || value.trim().isEmpty) {
                       return 'Please enter your email.';
                     }
-                    if (!RegExp(
-                      r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-                    ).hasMatch(value.trim())) {
+
+                    final email = value.trim();
+
+                    final emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
+                    if (!emailPattern.hasMatch(email)) {
                       return 'Please enter a valid email.';
                     }
+
                     return null;
                   },
                 ),
 
                 const SizedBox(height: 18),
 
+                // PHONE
                 const Text(
                   'Phone Number',
                   style: TextStyle(
@@ -324,15 +274,22 @@ class _SignupPageState extends State<SignupPage> {
                     if (value == null || value.trim().isEmpty) {
                       return 'Please enter your phone number.';
                     }
-                    if (!RegExp(r'^[0-9+\-\s]{8,15}$').hasMatch(value.trim())) {
+
+                    final phone = value.trim();
+
+                    final phonePattern = RegExp(r'^[0-9+\- ]{8,15}$');
+
+                    if (!phonePattern.hasMatch(phone)) {
                       return 'Please enter a valid phone number.';
                     }
+
                     return null;
                   },
                 ),
 
                 const SizedBox(height: 18),
 
+                // PASSWORD
                 const Text(
                   'Password',
                   style: TextStyle(
@@ -366,15 +323,18 @@ class _SignupPageState extends State<SignupPage> {
                     if (value == null || value.isEmpty) {
                       return 'Please enter your password.';
                     }
+
                     if (value.length < 6) {
                       return 'Password must be at least 6 characters.';
                     }
+
                     return null;
                   },
                 ),
 
                 const SizedBox(height: 30),
 
+                // VEHICLE INFORMATION
                 const Text(
                   'Vehicle Information',
                   style: TextStyle(
@@ -386,6 +346,7 @@ class _SignupPageState extends State<SignupPage> {
 
                 const SizedBox(height: 20),
 
+                // VEHICLE TYPE
                 const Text(
                   'Vehicle Type',
                   style: TextStyle(
@@ -423,6 +384,7 @@ class _SignupPageState extends State<SignupPage> {
 
                 const SizedBox(height: 18),
 
+                // VEHICLE PLATE NUMBER
                 const Text(
                   'Vehicle Plate Number',
                   style: TextStyle(
@@ -450,6 +412,7 @@ class _SignupPageState extends State<SignupPage> {
 
                 const SizedBox(height: 35),
 
+                // CREATE ACCOUNT BUTTON
                 SizedBox(
                   width: double.infinity,
                   height: 55,
@@ -479,6 +442,7 @@ class _SignupPageState extends State<SignupPage> {
 
                 const SizedBox(height: 25),
 
+                // LOGIN LINK
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
