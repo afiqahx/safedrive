@@ -42,7 +42,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
   //date format
   String formatDate(dynamic value) {
-    if (value == null) return 'Unknown date';
+    if (value == null) return 'Unknown';
 
     try {
       final date = DateTime.parse(value.toString()).toLocal();
@@ -128,20 +128,12 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   ///edit trip
+  // EDIT TRIP TITLE
   Future<void> editTrip(Map<String, dynamic> trip) async {
     final tripID = int.parse(trip['tripID'].toString());
 
-    final durationController = TextEditingController(
-      text: ((int.tryParse(
-                    trip['durationSeconds']?.toString() ?? '0',
-                  ) ??
-                  0) ~/
-              60)
-          .toString(),
-    );
-
-    final alertsController = TextEditingController(
-      text: trip['totalAlerts']?.toString() ?? '0',
+    final titleController = TextEditingController(
+      text: trip['tripTitle']?.toString() ?? 'Trip #$tripID',
     );
 
     final formKey = GlobalKey<FormState>();
@@ -149,44 +141,24 @@ class _HistoryPageState extends State<HistoryPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Edit Trip'),
+        title: const Text('Edit Trip Title'),
         content: Form(
           key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: durationController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Duration (minutes)',
-                ),
-                validator: (value) {
-                  if (value == null ||
-                      int.tryParse(value) == null ||
-                      int.parse(value) < 0) {
-                    return 'Enter a valid duration';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: alertsController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Total Alerts',
-                ),
-                validator: (value) {
-                  if (value == null ||
-                      int.tryParse(value) == null ||
-                      int.parse(value) < 0) {
-                    return 'Enter a valid alert count';
-                  }
-                  return null;
-                },
-              ),
-            ],
+          child: TextFormField(
+            controller: titleController,
+            maxLength: 100,
+            decoration: const InputDecoration(
+              labelText: 'Trip Title',
+              hintText: 'Enter your trip title',
+              border: OutlineInputBorder(),
+            ),
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Trip title cannot be empty.';
+              }
+
+              return null;
+            },
           ),
         ),
         actions: [
@@ -206,23 +178,17 @@ class _HistoryPageState extends State<HistoryPage> {
       ),
     );
 
-    if (confirmed != true) return;
+    if (confirmed != true) {
+      titleController.dispose();
+      return;
+    }
 
-    final durationMinutes = int.parse(durationController.text);
-
-    final totalAlerts = int.parse(alertsController.text);
-
-    final result = await ApiService.updateTrip(
+    final result = await ApiService.updateTripTitle(
       tripID: tripID,
-      startTime: trip['startTime'].toString(),
-      endTime: trip['endTime'].toString(),
-      durationSeconds: durationMinutes * 60,
-      totalAlerts: totalAlerts,
-      tripStatus: trip['tripStatus'] ?? 'Completed',
+      tripTitle: titleController.text.trim(),
     );
 
-    durationController.dispose();
-    alertsController.dispose();
+    titleController.dispose();
 
     if (!mounted) return;
 
@@ -240,6 +206,8 @@ class _HistoryPageState extends State<HistoryPage> {
   //trip card widget
   Widget buildTripCard(Map<String, dynamic> trip) {
     final tripID = int.parse(trip['tripID'].toString());
+
+    final tripTitle = trip['tripTitle']?.toString() ?? 'Trip #$tripID';
 
     final duration = formatDuration(
       trip['durationSeconds'],
@@ -293,11 +261,13 @@ class _HistoryPageState extends State<HistoryPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Trip #$tripID',
+                          tripTitle,
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -667,6 +637,19 @@ class _TripDetailPageState extends State<TripDetailPage> {
     }
   }
 
+  String formatDuration(dynamic value) {
+    final seconds = int.tryParse(value?.toString() ?? '') ?? 0;
+
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+
+    if (hours > 0) {
+      return '${hours}h ${minutes}m';
+    }
+
+    return '${minutes}m';
+  }
+
   //alert card
   Widget buildAlertCard(Map<String, dynamic> alert) {
     final level = alert['drowsinessLevel']?.toString() ?? 'Unknown';
@@ -755,9 +738,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
               ),
               _detailRow(
                 'Closure Duration',
-                closureDuration == null
-                    ? 'Not available'
-                    : '$closureDuration seconds',
+                formatDuration(closureDuration),
               ),
               const SizedBox(height: 10),
               Row(
@@ -820,6 +801,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
   @override
   Widget build(BuildContext context) {
     final trip = widget.trip;
+    final tripTitle = trip['tripTitle']?.toString() ?? 'Trip #$tripID';
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -847,7 +829,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Trip #$tripID',
+                  tripTitle,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 20,
@@ -865,7 +847,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
                 ),
                 _whiteDetail(
                   'Duration',
-                  '${trip['durationSeconds'] ?? 0} seconds',
+                  formatDuration(trip['durationSeconds']),
                 ),
                 _whiteDetail(
                   'Total Alerts',
@@ -1041,6 +1023,24 @@ class _AlertVideoPageState extends State<AlertVideoPage> {
     }
   }
 
+  String formatDateTime(dynamic value) {
+    if (value == null) return 'Unknown';
+
+    try {
+      final date = DateTime.parse(value.toString()).toLocal();
+
+      final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
+      final minute = date.minute.toString().padLeft(2, '0');
+      final period = date.hour >= 12 ? 'PM' : 'AM';
+
+      return '${date.day.toString().padLeft(2, '0')}/'
+          '${date.month.toString().padLeft(2, '0')}/'
+          '${date.year}  $hour:$minute $period';
+    } catch (e) {
+      return value.toString();
+    }
+  }
+
   //video placement
   @override
   Widget build(BuildContext context) {
@@ -1116,7 +1116,7 @@ class _AlertVideoPageState extends State<AlertVideoPage> {
           ),
           _videoDetail(
             'Alert Time',
-            alert['alertTime']?.toString() ?? 'Unknown',
+            formatDateTime(alert['alertTime']),
           ),
           _videoDetail(
             'Eye State',

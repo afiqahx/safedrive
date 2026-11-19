@@ -216,40 +216,43 @@ class ApiService {
   }
 
   // UPDATE: EDIT EXISTING TRIP
-  static Future<Map<String, dynamic>> updateTrip({
+// UPDATE: EDIT TRIP TITLE ONLY
+  static Future<Map<String, dynamic>> updateTripTitle({
     required int tripID,
-    required String startTime,
-    required String endTime,
-    required int durationSeconds,
-    required int totalAlerts,
-    String tripStatus = 'Completed',
+    required String tripTitle,
   }) async {
     try {
+      final requestBody = {
+        'tripTitle': tripTitle.trim(),
+      };
+
+      print('UPDATE TRIP TITLE REQUEST: $requestBody');
+
       final response = await http
           .put(
-            Uri.parse('$baseUrl/trips/$tripID'),
+            Uri.parse('$baseUrl/trips/$tripID/title'),
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'startTime': startTime,
-              'endTime': endTime,
-              'durationSeconds': durationSeconds,
-              'totalAlerts': totalAlerts,
-              'tripStatus': tripStatus,
-            }),
+            body: jsonEncode(requestBody),
           )
           .timeout(const Duration(seconds: 10));
-      ;
+
+      print('UPDATE TRIP TITLE STATUS: ${response.statusCode}');
+      print('UPDATE TRIP TITLE RESPONSE: ${response.body}');
 
       final data = jsonDecode(response.body);
 
       return {
         'success': response.statusCode == 200,
-        'message': data['message'] ?? 'Failed to update trip.',
+        'message': data['message'] ?? 'Failed to update trip title.',
+        'error': data['error'] ?? '',
       };
     } catch (e) {
+      print('UPDATE TRIP TITLE ERROR: $e');
+
       return {
         'success': false,
         'message': 'Unable to connect to server.',
+        'error': e.toString(),
       };
     }
   }
