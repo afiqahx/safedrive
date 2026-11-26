@@ -3,6 +3,7 @@ const cors = require('cors');
 const db = require('./db');
 
 const app = express();
+const dbAsync = db.promise();
 
 app.use(cors());
 app.use(express.json());
@@ -455,6 +456,216 @@ app.get('/trips/:tripID/video', (req, res) => {
       videoStartTime: results[0].videoStartTime
     });
   });
+});
+
+// Profile data and the driver's linked vehicles.
+app.get('/users/:userID/profile', async (req, res) => {
+  const userID = Number(req.params.userID);
+
+  try {
+    const [users] = await dbAsync.execute(
+      `SELECT userID, username, email, phone, role, createdAt
+       FROM user WHERE userID = ?`,
+      [userID]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'Profile not found.' });
+    }
+
+    const [vehicles] = await dbAsync.execute(
+      `SELECT vehicleID, userID, vehicle_type, plate_number, status
+       FROM vehicle WHERE userID = ?
+       ORDER BY CASE WHEN LOWER(status) = 'active' THEN 0 ELSE 1 END, vehicleID`,
+      [userID]
+    );
+
+    res.json({ user: users[0], vehicles });
+  } catch (err) {
+    console.error('GET PROFILE ERROR:', err);
+    res.status(500).json({ message: 'Failed to load profile.' });
+  }
+});
+
+// Update the driver's saved profile and the selected vehicle details.
+app.put('/users/:userID/profile', async (req, res) => {
+  const userID = Number(req.params.userID);
+  const { username, email, phone, vehicleID, vehicleType, plateNumber } = req.body;
+
+  if (!username?.trim() || !email?.trim()) {
+    return res.status(400).json({ message: 'Name and email are required.' });
+  }
+
+  try {
+    const [users] = await dbAsync.execute(
+      'SELECT userID FROM user WHERE userID = ?',
+      [userID]
+    );
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'Profile not found.' });
+    }
+
+    if (vehicleID != null) {
+      const [vehicles] = await dbAsync.execute(
+        'SELECT vehicleID FROM vehicle WHERE vehicleID = ? AND userID = ?',
+        [vehicleID, userID]
+      );
+      if (vehicles.length === 0) {
+        return res.status(404).json({ message: 'Vehicle not found.' });
+      }
+    }
+
+    await dbAsync.beginTransaction();
+    await dbAsync.execute(
+      'UPDATE user SET username = ?, email = ?, phone = ? WHERE userID = ?',
+      [username.trim(), email.trim().toLowerCase(), (phone || '').trim(), userID]
+    );
+
+    if (vehicleID != null) {
+      await dbAsync.execute(
+        `UPDATE vehicle SET vehicle_type = ?, plate_number = ?
+         WHERE vehicleID = ? AND userID = ?`,
+        [vehicleType || '', (plateNumber || '').trim().toUpperCase(), vehicleID, userID]
+      );
+    }
+
+    await dbAsync.commit();
+    res.json({ message: 'Profile updated successfully.' });
+  } catch (err) {
+    try { await dbAsync.rollback(); } catch (_) {}
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'That email address is already in use.' });
+    }
+    console.error('UPDATE PROFILE ERROR:', err);
+    res.status(500).json({ message: 'Failed to update profile.' });
+  }
+});
+
+// Mark one of the driver's own vehicles as active.
+app.put('/users/:userID/vehicles/:vehicleID/active', async (req, res) => {
+  const userID = Number(req.params.userID);
+  const vehicleID = Number(req.params.vehicleID);
+
+  try {
+    const [vehicles] = await dbAsync.execute(
+      'SELECT vehicleID FROM vehicle WHERE vehicleID = ? AND userID = ?',
+      [vehicleID, userID]
+    );
+    if (vehicles.length === 0) {
+      return res.status(404).json({ message: 'Vehicle not found.' });
+    }
+
+    await dbAsync.beginTransaction();
+    await dbAsync.execute(
+      "UPDATE vehicle SET status = 'Inactive' WHERE userID = ?",
+      [userID]
+    );
+    await dbAsync.execute(
+      "UPDATE vehicle SET status = 'Active' WHERE vehicleID = ? AND userID = ?",
+      [vehicleID, userID]
+    );
+    await dbAsync.commit();
+    res.json({ message: 'Active vehicle updated.' });
+  } catch (err) {
+    try { await dbAsync.rollback(); } catch (_) {}
+    console.error('ACTIVATE VEHICLE ERROR:', err);
+    res.status(500).json({ message: 'Failed to update active vehicle.' });
+  }
+});
+
+// Seven-day report data, calculated only from this driver's stored rows.
+app.get('/reports/:userID', async (req, res) => {
+  const userID = Number(req.params.userID);
+  const reportPeriod = (column) =>
+    `${column} >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+     AND ${column} < DATE_ADD(CURDATE(), INTERVAL 1 DAY)`;
+
+  try {
+    const [tripRows] = await dbAsync.execute(
+      `SELECT COUNT(*) AS totalTrips,
+              COALESCE(AVG(CASE WHEN durationSeconds > 0 THEN durationSeconds END), 0) AS averageTripSeconds
+       FROM trip_session
+       WHERE userID = ? AND tripStatus = 'Completed'
+         AND ${reportPeriod('startTime')}`,
+      [userID]
+    );
+
+    const [alertRows] = await dbAsync.execute(
+      `SELECT COUNT(*) AS totalAlerts
+       FROM alert_notification a
+       JOIN trip_session t ON t.tripID = a.tripID
+       WHERE t.userID = ? AND ${reportPeriod('a.alertTime')}`,
+      [userID]
+    );
+
+    const [dailyAlerts] = await dbAsync.execute(
+      `SELECT DATE_FORMAT(a.alertTime, '%Y-%m-%d') AS day, COUNT(*) AS count
+       FROM alert_notification a
+       JOIN trip_session t ON t.tripID = a.tripID
+       WHERE t.userID = ? AND ${reportPeriod('a.alertTime')}
+       GROUP BY DATE_FORMAT(a.alertTime, '%Y-%m-%d') ORDER BY day`,
+      [userID]
+    );
+
+    const [eyeStates] = await dbAsync.execute(
+      `SELECT e.eyeState, COUNT(*) AS count
+       FROM eye_state_log e
+       JOIN trip_session t ON t.tripID = e.tripID
+       WHERE t.userID = ? AND ${reportPeriod('e.timestamp')}
+       GROUP BY e.eyeState`,
+      [userID]
+    );
+
+    res.json({
+      totalTrips: Number(tripRows[0].totalTrips),
+      totalAlerts: Number(alertRows[0].totalAlerts),
+      averageTripSeconds: Number(tripRows[0].averageTripSeconds),
+      dailyAlerts: dailyAlerts.map((row) => ({
+        day: row.day,
+        count: Number(row.count)
+      })),
+      eyeStates: eyeStates.map((row) => ({
+        state: row.eyeState,
+        count: Number(row.count)
+      }))
+    });
+  } catch (err) {
+    console.error('GET REPORT ERROR:', err);
+    res.status(500).json({ message: 'Failed to load report.' });
+  }
+});
+
+// Delete the account only after the driver confirms their password.
+app.delete('/users/:userID', async (req, res) => {
+  const userID = Number(req.params.userID);
+  const { password } = req.body;
+
+  if (!password) {
+    return res.status(400).json({ message: 'Password confirmation is required.' });
+  }
+
+  try {
+    const [users] = await dbAsync.execute(
+      'SELECT password FROM user WHERE userID = ?',
+      [userID]
+    );
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'Account not found.' });
+    }
+    if (users[0].password !== password) {
+      return res.status(401).json({ message: 'The password is incorrect.' });
+    }
+
+    await dbAsync.beginTransaction();
+    await dbAsync.execute('DELETE FROM vehicle WHERE userID = ?', [userID]);
+    await dbAsync.execute('DELETE FROM user WHERE userID = ?', [userID]);
+    await dbAsync.commit();
+    res.json({ message: 'Account and linked data deleted.' });
+  } catch (err) {
+    try { await dbAsync.rollback(); } catch (_) {}
+    console.error('DELETE ACCOUNT ERROR:', err);
+    res.status(500).json({ message: 'Failed to delete account.' });
+  }
 });
 
 app.listen(3000, '0.0.0.0', () => {

@@ -277,4 +277,115 @@ class ApiService {
       };
     }
   }
+
+  static Future<Map<String, dynamic>> getProfile(int userID) async {
+    try {
+      final response = await http
+          .get(Uri.parse('$baseUrl/users/$userID/profile'))
+          .timeout(const Duration(seconds: 10));
+      final data = Map<String, dynamic>.from(jsonDecode(response.body));
+
+      if (response.statusCode == 200) {
+        return {'success': true, ...data};
+      }
+      return {
+        'success': false,
+        'message': data['message'] ?? 'Could not load profile.',
+      };
+    } catch (e) {
+      return {'success': false, 'message': 'Unable to connect to the server.'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> updateProfile({
+    required int userID,
+    required String username,
+    required String email,
+    required String phone,
+    int? vehicleID,
+    String? vehicleType,
+    String? plateNumber,
+  }) async {
+    try {
+      final response = await http
+          .put(
+            Uri.parse('$baseUrl/users/$userID/profile'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'username': username,
+              'email': email,
+              'phone': phone,
+              'vehicleID': vehicleID,
+              'vehicleType': vehicleType,
+              'plateNumber': plateNumber,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+      final data = Map<String, dynamic>.from(jsonDecode(response.body));
+      return {
+        'success': response.statusCode == 200,
+        'message': data['message'] ?? 'Could not save profile.',
+      };
+    } catch (e) {
+      return {'success': false, 'message': 'Unable to connect to the server.'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> activateVehicle({
+    required int userID,
+    required int vehicleID,
+  }) async {
+    try {
+      final response = await http
+          .put(Uri.parse('$baseUrl/users/$userID/vehicles/$vehicleID/active'))
+          .timeout(const Duration(seconds: 10));
+      final data = Map<String, dynamic>.from(jsonDecode(response.body));
+      return {
+        'success': response.statusCode == 200,
+        'message': data['message'] ?? 'Could not update active vehicle.',
+      };
+    } catch (e) {
+      return {'success': false, 'message': 'Unable to connect to the server.'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getReport(int userID) async {
+    try {
+      final response = await http
+          .get(Uri.parse('$baseUrl/reports/$userID'))
+          .timeout(const Duration(seconds: 10));
+      final data = Map<String, dynamic>.from(jsonDecode(response.body));
+      if (response.statusCode == 200) {
+        return {'success': true, ...data};
+      }
+      return {
+        'success': false,
+        'message': data['message'] ?? 'Could not load report.',
+      };
+    } catch (e) {
+      return {'success': false, 'message': 'Unable to connect to the server.'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> deleteAccount({
+    required int userID,
+    required String password,
+  }) async {
+    try {
+      final response = await http
+          .delete(
+            Uri.parse('$baseUrl/users/$userID'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'password': password}),
+          )
+          .timeout(const Duration(seconds: 10));
+      final data = Map<String, dynamic>.from(jsonDecode(response.body));
+      return {
+        'success': response.statusCode == 200,
+        'message': data['message'] ?? 'Could not delete account.',
+      };
+    } catch (e) {
+      return {'success': false, 'message': 'Unable to connect to the server.'};
+    }
+  }
 }

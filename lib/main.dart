@@ -4,8 +4,8 @@ import 'services/api_service.dart';
 import 'signup.dart';
 import 'home.dart' show HomePage;
 import 'history.dart' show HistoryPage;
-import 'report_profile_pages.dart' show ReportPage;
-import 'profile_page.dart';
+import 'report_page.dart' show ReportPage;
+import 'profile_screen.dart' show ProfileScreen;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -84,7 +84,7 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
 
       if (result['success'] == true) {
-        final user = result['user'];
+        final user = Map<String, dynamic>.from(result['user'] as Map);
 
         showMessage(
           'Welcome, ${user['username'] ?? 'Driver'}!',
@@ -93,7 +93,7 @@ class _LoginPageState extends State<LoginPage> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => const DashboardPage(),
+            builder: (context) => DashboardPage(user: user),
           ),
         );
       } else {
@@ -364,7 +364,9 @@ class _LoginPageState extends State<LoginPage> {
 
 // DASHBOARD NAVIGATION
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  const DashboardPage({super.key, required this.user});
+
+  final Map<String, dynamic> user;
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -373,12 +375,26 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   int selectedIndex = 0;
 
-  final List<Widget> pages = const [
-    HomePage(),
-    HistoryPage(userID: 1), // Replace 1 with the actual user ID
-    ReportPage(),
-    ProfilePage(),
-  ];
+  late final List<Widget> pages;
+
+  @override
+  void initState() {
+    super.initState();
+    final userID = int.tryParse(widget.user['userID']?.toString() ?? '') ?? 0;
+    pages = [
+      const HomePage(),
+      HistoryPage(userID: userID),
+      ReportPage(userID: userID),
+      ProfileScreen(userID: userID, onLogout: _logout),
+    ];
+  }
+
+  void _logout() {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+      (route) => false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
