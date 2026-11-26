@@ -573,12 +573,14 @@ app.put('/users/:userID/vehicles/:vehicleID/active', async (req, res) => {
   }
 });
 
-// Seven-day report data, calculated only from this driver's stored rows.
+// Report data for either the most recent seven days or all saved records.
 app.get('/reports/:userID', async (req, res) => {
   const userID = Number(req.params.userID);
-  const reportPeriod = (column) =>
-    `${column} >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-     AND ${column} < DATE_ADD(CURDATE(), INTERVAL 1 DAY)`;
+  const allRecords = req.query.range === 'all';
+  const reportPeriod = (column) => allRecords
+    ? ''
+    : `AND ${column} >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+       AND ${column} < DATE_ADD(CURDATE(), INTERVAL 1 DAY)`;
 
   try {
     const [tripRows] = await dbAsync.execute(
@@ -586,7 +588,7 @@ app.get('/reports/:userID', async (req, res) => {
               COALESCE(AVG(CASE WHEN durationSeconds > 0 THEN durationSeconds END), 0) AS averageTripSeconds
        FROM trip_session
        WHERE userID = ? AND tripStatus = 'Completed'
-         AND ${reportPeriod('startTime')}`,
+         ${reportPeriod('startTime')}`,
       [userID]
     );
 
@@ -594,16 +596,19 @@ app.get('/reports/:userID', async (req, res) => {
       `SELECT COUNT(*) AS totalAlerts
        FROM alert_notification a
        JOIN trip_session t ON t.tripID = a.tripID
-       WHERE t.userID = ? AND ${reportPeriod('a.alertTime')}`,
+       WHERE t.userID = ? ${reportPeriod('a.alertTime')}`,
       [userID]
     );
 
-    const [dailyAlerts] = await dbAsync.execute(
-      `SELECT DATE_FORMAT(a.alertTime, '%Y-%m-%d') AS day, COUNT(*) AS count
+    const alertPeriodFormat = allRecords ? '%Y-%m' : '%Y-%m-%d';
+    const [alertBuckets] = await dbAsync.execute(
+      `SELECT DATE_FORMAT(a.alertTime, '${alertPeriodFormat}') AS period,
+              COUNT(*) AS count
        FROM alert_notification a
        JOIN trip_session t ON t.tripID = a.tripID
-       WHERE t.userID = ? AND ${reportPeriod('a.alertTime')}
-       GROUP BY DATE_FORMAT(a.alertTime, '%Y-%m-%d') ORDER BY day`,
+       WHERE t.userID = ? ${reportPeriod('a.alertTime')}
+       GROUP BY DATE_FORMAT(a.alertTime, '${alertPeriodFormat}')
+       ORDER BY period`,
       [userID]
     );
 
@@ -611,7 +616,7 @@ app.get('/reports/:userID', async (req, res) => {
       `SELECT e.eyeState, COUNT(*) AS count
        FROM eye_state_log e
        JOIN trip_session t ON t.tripID = e.tripID
-       WHERE t.userID = ? AND ${reportPeriod('e.timestamp')}
+       WHERE t.userID = ? ${reportPeriod('e.timestamp')}
        GROUP BY e.eyeState`,
       [userID]
     );
@@ -620,8 +625,9 @@ app.get('/reports/:userID', async (req, res) => {
       totalTrips: Number(tripRows[0].totalTrips),
       totalAlerts: Number(alertRows[0].totalAlerts),
       averageTripSeconds: Number(tripRows[0].averageTripSeconds),
-      dailyAlerts: dailyAlerts.map((row) => ({
-        day: row.day,
+      alertBucketType: allRecords ? 'month' : 'day',
+      alertBuckets: alertBuckets.map((row) => ({
+        period: row.period,
         count: Number(row.count)
       })),
       eyeStates: eyeStates.map((row) => ({

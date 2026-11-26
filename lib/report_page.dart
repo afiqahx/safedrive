@@ -22,6 +22,7 @@ class _ReportPageState extends State<ReportPage> {
 
   bool _loading = true;
   bool _exporting = false;
+  bool _allRecords = false;
   String? _error;
   Map<String, dynamic> _report = {};
 
@@ -31,12 +32,18 @@ class _ReportPageState extends State<ReportPage> {
     _loadReport();
   }
 
-  Future<void> _loadReport() async {
+  Future<void> _loadReport({bool? allRecords}) async {
+    if (allRecords != null) {
+      setState(() => _allRecords = allRecords);
+    }
     setState(() {
       _loading = true;
       _error = null;
     });
-    final result = await ApiService.getReport(widget.userID);
+    final result = await ApiService.getReport(
+      widget.userID,
+      allRecords: _allRecords,
+    );
     if (!mounted) return;
     setState(() {
       _loading = false;
@@ -71,13 +78,36 @@ class _ReportPageState extends State<ReportPage> {
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
-  List<_DayAlert> get _sevenDayAlerts {
+  List<_AlertBucket> get _alertBuckets {
+    final rows = (_report['alertBuckets'] as List?) ?? const [];
+    if (_report['alertBucketType'] == 'month') {
+      const monthLabels = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
+      return rows.whereType<Map>().map((row) {
+        final period = row['period']?.toString() ?? '';
+        final date = DateTime.tryParse('$period-01');
+        final label = date == null
+            ? period
+            : '${monthLabels[date.month - 1]} ${date.year.toString().substring(2)}';
+        return _AlertBucket(label: label, count: _asInt(row['count']));
+      }).toList();
+    }
+
     final byDay = <String, int>{};
-    final rows = (_report['dailyAlerts'] as List?) ?? const [];
-    for (final row in rows) {
-      if (row is Map) {
-        byDay[row['day']?.toString() ?? ''] = _asInt(row['count']);
-      }
+    for (final row in rows.whereType<Map>()) {
+      byDay[row['period']?.toString() ?? ''] = _asInt(row['count']);
     }
 
     final today = DateTime.now();
@@ -88,7 +118,8 @@ class _ReportPageState extends State<ReportPage> {
           '${day.month.toString().padLeft(2, '0')}-'
           '${day.day.toString().padLeft(2, '0')}';
       const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      return _DayAlert(label: labels[day.weekday - 1], count: byDay[key] ?? 0);
+      return _AlertBucket(
+          label: labels[day.weekday - 1], count: byDay[key] ?? 0);
     });
   }
 
@@ -110,7 +141,8 @@ class _ReportPageState extends State<ReportPage> {
     setState(() => _exporting = true);
     try {
       final document = pw.Document();
-      final rows = _sevenDayAlerts;
+      final rows = _alertBuckets;
+      final rangeLabel = _allRecords ? 'All records' : 'Last 7 days';
       document.addPage(
         pw.MultiPage(
           build: (context) => [
@@ -118,7 +150,7 @@ class _ReportPageState extends State<ReportPage> {
                 style:
                     pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold)),
             pw.SizedBox(height: 6),
-            pw.Text('Report period: the past 7 days'),
+            pw.Text('Report period: $rangeLabel'),
             pw.SizedBox(height: 20),
             pw.Text('Driving summary',
                 style:
@@ -138,12 +170,15 @@ class _ReportPageState extends State<ReportPage> {
               ],
             ),
             pw.SizedBox(height: 20),
-            pw.Text('Alert frequency by day',
+            pw.Text(
+                _allRecords
+                    ? 'Alert frequency by month'
+                    : 'Alert frequency by day',
                 style:
                     pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold)),
             pw.SizedBox(height: 8),
             pw.TableHelper.fromTextArray(
-              headers: ['Day', 'Alerts'],
+              headers: [_allRecords ? 'Month' : 'Day', 'Alerts'],
               data: rows.map((item) => [item.label, '${item.count}']).toList(),
             ),
             pw.SizedBox(height: 14),
@@ -156,7 +191,7 @@ class _ReportPageState extends State<ReportPage> {
       await Printing.sharePdf(
         bytes: bytes,
         filename:
-            'safedrive_report_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
+            'safedrive_${_allRecords ? 'all_records' : 'last_7_days'}_report_${DateTime.now().toIso8601String().substring(0, 10)}.pdf',
       );
     } catch (error) {
       if (mounted)
@@ -196,17 +231,30 @@ class _ReportPageState extends State<ReportPage> {
                   ],
                 ),
               ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-                decoration: BoxDecoration(
+              PopupMenuButton<bool>(
+                tooltip: 'Choose report period',
+                onSelected: (value) => _loadReport(allRecords: value),
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: false, child: Text('Last 7 days')),
+                  PopupMenuItem(value: true, child: Text('All records')),
+                ],
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+                  decoration: BoxDecoration(
                     color: const Color(0xFFEAF0FF),
-                    borderRadius: BorderRadius.circular(18)),
-                child: const Text('Last 7 days',
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: _blue,
-                        fontWeight: FontWeight.w600)),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text(_allRecords ? 'All records' : 'Last 7 days',
+                        style: const TextStyle(
+                            fontSize: 11,
+                            color: _blue,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 3),
+                    const Icon(Icons.expand_more, size: 15, color: _blue),
+                  ]),
+                ),
               ),
             ],
           ),
@@ -239,7 +287,10 @@ class _ReportPageState extends State<ReportPage> {
               hasRecords: _eyeEvents > 0,
             ),
             const SizedBox(height: 12),
-            _AlertChartCard(days: _sevenDayAlerts),
+            _AlertChartCard(
+              buckets: _alertBuckets,
+              groupByMonth: _report['alertBucketType'] == 'month',
+            ),
             const SizedBox(height: 12),
             _EyeRatioCard(
               openCount: _openEyes,
@@ -275,8 +326,8 @@ class _ReportPageState extends State<ReportPage> {
   }
 }
 
-class _DayAlert {
-  const _DayAlert({required this.label, required this.count});
+class _AlertBucket {
+  const _AlertBucket({required this.label, required this.count});
   final String label;
   final int count;
 }
@@ -373,64 +424,107 @@ class _EyeSummaryCard extends StatelessWidget {
 }
 
 class _AlertChartCard extends StatelessWidget {
-  const _AlertChartCard({required this.days});
-  final List<_DayAlert> days;
+  const _AlertChartCard({required this.buckets, required this.groupByMonth});
+  final List<_AlertBucket> buckets;
+  final bool groupByMonth;
+
+  Widget _bar(_AlertBucket bucket, int maxCount, {double? width}) {
+    final barHeight = bucket.count == 0 ? 3.0 : 72 * bucket.count / maxCount;
+    return SizedBox(
+      width: width,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (bucket.count > 0)
+              Text('${bucket.count}',
+                  style:
+                      const TextStyle(fontSize: 9, color: Color(0xFF718096))),
+            const Spacer(),
+            Container(
+              height: barHeight,
+              decoration: BoxDecoration(
+                color: bucket.count == 0
+                    ? const Color(0xFFE6ECF6)
+                    : const Color(0xFF2862E9),
+                borderRadius: BorderRadius.circular(5),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(bucket.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 9, color: Color(0xFF718096))),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final maxCount = math.max(
-        1, days.fold<int>(0, (value, day) => math.max(value, day.count)));
+      1,
+      buckets.fold<int>(0, (value, bucket) => math.max(value, bucket.count)),
+    );
+    final bars = groupByMonth
+        ? SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: buckets
+                  .map((bucket) => _bar(bucket, maxCount, width: 58))
+                  .toList(),
+            ),
+          )
+        : Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: buckets
+                .map((bucket) => Expanded(child: _bar(bucket, maxCount)))
+                .toList(),
+          );
+
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 15, 16, 12),
       decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: const [
-            BoxShadow(
-                color: Color(0x0D142B4A), blurRadius: 8, offset: Offset(0, 2))
-          ]),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Alert Frequency History',
-            style: TextStyle(
-                fontSize: 13,
-                color: Color(0xFF142B4A),
-                fontWeight: FontWeight.bold)),
-        const SizedBox(height: 16),
-        SizedBox(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0D142B4A),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            groupByMonth
+                ? 'Alert Frequency by Month'
+                : 'Alert Frequency History',
+            style: const TextStyle(
+              fontSize: 13,
+              color: Color(0xFF142B4A),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
             height: 135,
-            child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: days.map((day) {
-                  final height =
-                      day.count == 0 ? 3.0 : 72 * day.count / maxCount;
-                  return Expanded(
-                      child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Column(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                if (day.count > 0)
-                                  Text('${day.count}',
-                                      style: const TextStyle(
-                                          fontSize: 9,
-                                          color: Color(0xFF718096))),
-                                const Spacer(),
-                                Container(
-                                    height: height,
-                                    decoration: BoxDecoration(
-                                        color: day.count == 0
-                                            ? const Color(0xFFE6ECF6)
-                                            : const Color(0xFF2862E9),
-                                        borderRadius:
-                                            BorderRadius.circular(5))),
-                                const SizedBox(height: 6),
-                                Text(day.label,
-                                    style: const TextStyle(
-                                        fontSize: 9, color: Color(0xFF718096))),
-                              ])));
-                }).toList())),
-        const Divider(height: 12, color: Color(0xFFE7ECF2)),
-      ]),
+            child: buckets.isEmpty
+                ? const Center(
+                    child: Text('No alert records found.',
+                        style:
+                            TextStyle(fontSize: 11, color: Color(0xFF718096))),
+                  )
+                : bars,
+          ),
+          const Divider(height: 12, color: Color(0xFFE7ECF2)),
+        ],
+      ),
     );
   }
 }

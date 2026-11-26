@@ -349,10 +349,14 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> getReport(int userID) async {
+  static Future<Map<String, dynamic>> getReport(
+    int userID, {
+    required bool allRecords,
+  }) async {
     try {
       final response = await http
-          .get(Uri.parse('$baseUrl/reports/$userID'))
+          .get(Uri.parse(
+              '$baseUrl/reports/$userID?range=${allRecords ? 'all' : '7'}'))
           .timeout(const Duration(seconds: 10));
       final data = Map<String, dynamic>.from(jsonDecode(response.body));
       if (response.statusCode == 200) {
